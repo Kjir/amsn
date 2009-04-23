@@ -232,7 +232,11 @@ remove_tooltip (void)
 static int
 MessageEvent (Tk_Window tkwin, XEvent *eventPtr)
 {
-//	printf("Message\n");
+	printf("Got ClientMessage event\n");
+    if( eventPtr->type == ClientMessage ) {
+        printf( "Window: %d\n", eventPtr->xclient.window );
+        printf( "Atom: %s\n", XGetAtomName(display, eventPtr->xclient.message_type) );
+    }
 	return 0;
 }
 
@@ -243,6 +247,7 @@ IconEvent (ClientData clientData, register XEvent *eventPtr)
 {
 	TrayIcon *icon = (TrayIcon *)clientData;
 
+    printf( "Got another Event\n" );
 	if ((eventPtr->type == Expose) && (eventPtr->xexpose.count == 0)) {
 		if (icon->win != NULL)
 			/*horrible hack to redraw the icon when dragging the dock aroun the panels*/
@@ -396,7 +401,7 @@ Tk_TrayIconNew (ClientData clientData,
 		
 		/* Create callback function for event handling */
 		mask = StructureNotifyMask | ExposureMask | EnterWindowMask | LeaveWindowMask  | PropertyChangeMask;
-		Tk_CreateEventHandler(icon->win, mask, IconEvent, (ClientData) icon);
+		Tk_CreateEventHandler(mainw, mask, IconEvent, (ClientData) icon);
 		Tk_CreateClientMessageHandler(MessageEvent);
 		
 		/* Set default icon size hint */
