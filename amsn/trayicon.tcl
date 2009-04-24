@@ -203,6 +203,12 @@ proc trayicon_callback {imgSrc imgDst width height} {
 	}
 }
 
+proc statusicon_createcb {} {
+	global iconmenu
+	bind .si <<Button1>> iconify_proc
+	bind .si <<Button3>> "tk_popup $iconmenu %X %Y"
+}
+
 proc statusicon_proc {status} {
 	global systemtray_exist statusicon list_states iconmenu wintrayicon defaultbackground
 	set cmdline ""
@@ -216,10 +222,7 @@ proc statusicon_proc {status} {
 			image create photo statustrayicon -file $pixmap
 			image create photo statustrayiconres
 			#add the icon
-			set statusicon [newti .si -tooltip offline -pixmap statustrayiconres -command "::trayicon_callback statustrayicon statustrayiconres"]
-
-			bind .si <<Button1>> iconify_proc
-			bind .si <<Button3>> "tk_popup $iconmenu %X %Y"
+			set statusicon [newti .si -tooltip offline -pixmap statustrayiconres -command "::trayicon_callback statustrayicon statustrayiconres" -createcb "::statusicon_createcb"]
 		}
 	}
 
@@ -382,6 +385,13 @@ proc taskbar_mail_icon_handler { msg x y } {
 	}
 }
 
+proc mailicon_createcb { msg } {
+	bind .mi <Button-1> "::hotmail::hotmail_login"
+	bind .mi <Enter> [list balloon_enter %W %X %Y $msg]
+	bind .mi <Motion> [list balloon_motion %W %X %Y $msg]
+	bind .mi <Leave> "+set Bulle(first) 0; kill_balloon"
+}
+
 proc mailicon_proc {num} {
 	# Workaround for bug in the traydock-plugin - statusicon added - BEGIN
 	global systemtray_exist mailicon statusicon password winmailicon mailtrayicon defaultbackground
@@ -408,12 +418,7 @@ proc mailicon_proc {num} {
 		} else {
 			image create photo mailtrayicon -file $pixmap
 			image create photo mailtrayiconres
-			set mailicon [newti .mi -tooltip offline -pixmap mailtrayiconres -command "::trayicon_callback mailtrayicon mailtrayiconres"]
-
-			bind .mi <Button-1> "::hotmail::hotmail_login"
-			bind .mi <Enter> [list balloon_enter %W %X %Y $msg]
-			bind .mi <Motion> [list balloon_motion %W %X %Y $msg]
-			bind .mi <Leave> "+set Bulle(first) 0; kill_balloon"
+			set mailicon [newti .mi -tooltip offline -pixmap mailtrayiconres -command "::trayicon_callback mailtrayicon mailtrayiconres" -createcb "::mailicon_createcb $msg"]
 		}
 
 	} elseif {$systemtray_exist == 1 && $mailicon != 0 && $num == 0} {
@@ -564,14 +569,7 @@ proc addTrayIcon {name xiconpath winiconpath {tooltip ""} {winactionhandler "noh
 			} else {
 				if { [loadTrayLib] } {
 					#add the icon     !! name => .name
-					set name [newti .$name -pixmap [image create photo dest_$name] -command "::trayIcon_Configure [image create photo source_$name -file $xiconpath] dest_$name"]
-
-					#TODO: balloon bindings
-					#bind .$name <Motion> [list status_log "motion"]
-					status_log $name
-					bind $name <Enter> +[list balloon_enter %W %X %Y "Test!" [::skin::loadPixmap dbusy]]
-					bind $name <Motion> +[list balloon_motion %W %X %Y "Test!" [::skin::loadPixmap dbusy]]
-					bind $name <Leave> "+set Bulle(first) 0; kill_balloon"
+					set name [newti .$name -pixmap [image create photo dest_$name] -command "::trayIcon_Configure [image create photo source_$name -file $xiconpath] dest_$name" -createcb "::trayIcon_Bind $name"]
 				}
 			}
 			return 1
@@ -646,6 +644,16 @@ proc trayIcon_Configure {imgSrc imgDst width height} {
 		::picture::ResizeWithRatio $imgDst $width $height
 	}
 }
+
+proc trayIcon_Bind {name} {
+	#TODO: balloon bindings
+	#bind .$name <Motion> [list status_log "motion"]
+	status_log $name
+	bind $name <Enter> +[list balloon_enter %W %X %Y "Test!" [::skin::loadPixmap dbusy]]
+	bind $name <Motion> +[list balloon_motion %W %X %Y "Test!" [::skin::loadPixmap dbusy]]
+	bind $name <Leave> "+set Bulle(first) 0; kill_balloon"
+}
+
 #Windows only aid proc:
 proc nohandler {win x y} {
 	status_log "Err: No icon handler given"

@@ -61,9 +61,12 @@ typedef struct TrayIcon *TrayIcon_;
 typedef struct {
 	Tk_Window win;
 	Tk_PhotoHandle pixmap;
+	char *pixmapName;
+	const char *pathName;
 	int w,h;
 	char tooltip[256];
 	char cmdCallback[768];
+	char cmdCreate[768];
 	int mustUpdate;
 	int width;
 	int height;
@@ -295,6 +298,50 @@ ImageChangedProc (ClientData clientData,
 	Tcl_DoWhenIdle(DrawIcon, clientData);
 }
 
+/* Create the Window that will hold the tray icon */
+static int 
+CreateIconWin(Tcl_Interp *interp, TrayIcon *icon)
+{
+	Tk_Window mainw = Tk_MainWindow(interp);
+	size_t length;
+	char cmdBuffer[1024];
+
+	/* Create the window */
+	icon->win=Tk_CreateWindowFromPath(interp, mainw, icon->pathName, NULL);
+
+	DockIcon((ClientData)icon);
+
+	Tk_GeometryRequest( icon->win, 24, 24);
+
+	icon->pixmap=Tk_GetImage(interp,icon->win,icon->pixmapName,ImageChangedProc, (ClientData)icon);
+
+	/* Create callback function for event handling */
+	//FIXME: This is setup in the wrong way, we should not refer to mainw, but to the tray window
+	unsigned int mask = StructureNotifyMask | ExposureMask | EnterWindowMask | LeaveWindowMask  | PropertyChangeMask;
+	Tk_CreateEventHandler(mainw, mask, IconEvent, (ClientData) icon);
+	Tk_CreateClientMessageHandler(MessageEvent);
+
+	/* Set default icon size hint */
+	XSizeHints *hint = XAllocSizeHints();
+	hint->flags |=PMinSize|PMaxSize;
+	hint->min_width=24;
+	hint->max_width=64;
+	hint->min_height=24;
+	hint->max_height=64;
+
+	XSetWMNormalHints(display,Tk_WindowId(icon->win),hint);
+	XFree(hint);
+
+	snprintf(cmdBuffer,sizeof(cmdBuffer),"%s %u %u",icon->cmdCallback,24,24);
+	if (Tcl_EvalEx(globalinterp,cmdBuffer,-1,TCL_EVAL_GLOBAL) == TCL_ERROR) {
+		return 0;
+	}
+	if (Tcl_EvalEx(globalinterp,icon->cmdCreate,-1,TCL_EVAL_GLOBAL) == TCL_ERROR) {
+		return 0;
+	}
+	return 1;
+}
+
 /* New tray icon procedure (newti command) */
 static int
 Tk_TrayIconNew (ClientData clientData,
@@ -303,20 +350,11 @@ Tk_TrayIconNew (ClientData clientData,
 		Tcl_Obj *CONST objv[])
 {
 
-	int n,found;
-	char *arg,*pixmap=NULL;
+	int n;
+	char *arg;
 	size_t length;
 	Tk_Window mainw;
-	unsigned int mask;
 	TrayIcon *icon;
-	XSizeHints *hint;
-	char cmdBuffer[1024];
-
-	/* systemtray was not available in Init */
-	if (systemtray==0) {
-		Tcl_AppendResult (interp, "cannot create a tray icon without a system tray", (char *) NULL);
-		return TCL_ERROR;
-	}
 
 	/* Get memory for trayicon data and zero it*/
 	icon = (TrayIcon *) malloc(sizeof(TrayIcon));
@@ -326,16 +364,15 @@ Tk_TrayIconNew (ClientData clientData,
 	mainw=Tk_MainWindow(interp);
 
 	/* Get the first argument string (object name) and check it */
-	arg=Tcl_GetStringFromObj(objv[1],(int *) &length);
+	icon->pathName=Tcl_GetStringFromObj(objv[1],(int *) &length);
 	//printf("Arg: %s\n",arg);
-	if (arg == NULL || length < 1 || strncmp(arg, ".", 1)) {
-		Tcl_AppendResult (interp, "bad path name: ", arg , (char *) NULL);
+	if (icon->pathName == NULL || length < 1 || strncmp(icon->pathName, ".", 1)) {
+		Tcl_AppendResult (interp, "bad path name: ", icon->pathName , (char *) NULL);
 		return TCL_ERROR;
 	}
 	
 	/* Search in the list if that trayicon window name already exists */
 	//printf ("Searching for %s!!\n",arg);
-	found=0;
 	if (iconlist != NULL)
 	{
 		IL_FIRST(iconlist)
@@ -343,21 +380,14 @@ Tk_TrayIconNew (ClientData clientData,
 		while (1)
 		{
 			//printf ("Comparing with %s!!\n",Tk_PathName(iconlist->win));
-			if (!strcmp(Tk_PathName(iconlist->win),arg))
+			if (!strcmp(iconlist->pathName,icon->pathName))
 			{
-				found=1;
-				break;
+				Tcl_AppendResult (interp, "tray icon ",icon->pathName , " already exist", (char *) NULL);
+				return TCL_ERROR;
 			}
 			if (iconlist->next==NULL)
 				break;
 			iconlist=(TrayIcon *)iconlist->next;
-		}
-
-		if (found == 1)
-		{
-			Tcl_AppendResult (interp, "tray icon ",arg , " already exist", (char *) NULL);
-			//printf ("Already exists error!!\n");
-			return TCL_ERROR;
 		}
 	}
 
@@ -368,7 +398,7 @@ Tk_TrayIconNew (ClientData clientData,
 			if (!strncmp(arg,"-pixmap",length)) {
 				n++;
 				/*Get pixmap name*/
-				pixmap=Tcl_GetStringFromObj(objv[n],(int *) &length);
+				icon->pixmapName=Tcl_GetStringFromObj(objv[n],(int *) &length);
 			} else if (!strncmp(arg,"-tooltip",length)) {
 				/* Copy tooltip string */
 				n++;
@@ -377,6 +407,10 @@ Tk_TrayIconNew (ClientData clientData,
 				/* Copy command string */
 				n++;
 				strcpy (icon->cmdCallback,Tcl_GetStringFromObj(objv[n],(int *) &length));
+			} else if (!strncmp(arg,"-createcb",length)) {
+				/* Copy createcb string */
+				n++;
+				strcpy (icon->cmdCreate,Tcl_GetStringFromObj(objv[n],(int *) &length));
 			} else {
 				Tcl_AppendResult (interp, "unknown", arg,"option", (char *) NULL);
 				return TCL_ERROR;
@@ -387,37 +421,13 @@ Tk_TrayIconNew (ClientData clientData,
 		}
 	}
 
-	/* If there's a pixmap file, load it */
-	if (pixmap != NULL) {
-		/* Create the window */
-		icon->win=Tk_CreateWindowFromPath(interp,mainw,
-				Tcl_GetStringFromObj(objv[1],(int *) &length),NULL);
-
-		DockIcon((ClientData)icon);
-
-		Tk_GeometryRequest( icon->win, 24, 24);
-
-		icon->pixmap=Tk_GetImage(interp,icon->win,pixmap,ImageChangedProc, (ClientData)icon);
-		
-		/* Create callback function for event handling */
-		mask = StructureNotifyMask | ExposureMask | EnterWindowMask | LeaveWindowMask  | PropertyChangeMask;
-		Tk_CreateEventHandler(mainw, mask, IconEvent, (ClientData) icon);
-		Tk_CreateClientMessageHandler(MessageEvent);
-		
-		/* Set default icon size hint */
-		hint = XAllocSizeHints();
-		hint->flags |=PMinSize|PMaxSize;
-		hint->min_width=24;
-		hint->max_width=64;
-		hint->min_height=24;
-		hint->max_height=64;
-	
-		XSetWMNormalHints(display,Tk_WindowId(icon->win),hint);
-		XFree(hint);
-
-		snprintf(cmdBuffer,sizeof(cmdBuffer),"%s %u %u",icon->cmdCallback,24,24);
-		if (Tcl_EvalEx(globalinterp,cmdBuffer,-1,TCL_EVAL_GLOBAL) == TCL_ERROR)
-			return TCL_ERROR;
+	/* If there's a pixmap file, try to load it */
+	if (icon->pixmapName != NULL) {
+		if (systemtray != NULL) { /* If the system tray is currently available, create the window */
+			if(!CreateIconWin(interp, icon)) {
+				return TCL_ERROR;
+			}
+		}
 	}else{
 		Tcl_AppendResult (interp, "you must provide a pixmap file", (char *) NULL);
 		return TCL_ERROR;
@@ -427,7 +437,7 @@ Tk_TrayIconNew (ClientData clientData,
 	IL_APPEND(iconlist,icon)
 	
 	/* Set result string and return OK */
-	Tcl_SetResult(interp, Tk_PathName(icon->win), TCL_STATIC);
+	Tcl_SetResult(interp, icon->pathName, TCL_STATIC);
 	return TCL_OK;
 }
 
@@ -438,8 +448,8 @@ Tk_ConfigureIcon (ClientData clientData,
     		int objc,
     		Tcl_Obj *CONST objv[])
 {
-	int n,found;
-	char *arg,*pixmap=NULL;
+	int n;
+	char *arg;
 	size_t length;
 
 	/* Check path name */
@@ -456,7 +466,6 @@ Tk_ConfigureIcon (ClientData clientData,
 	}
 	
 	/* Find icon in the list */
-	found=0;
 	if (iconlist == NULL)
 	{
 		Tcl_AppendResult (interp, "create a tray icon first" , (char *) NULL);
@@ -468,22 +477,15 @@ Tk_ConfigureIcon (ClientData clientData,
 		
 	while (1)
 	{
-		if (!strcmp(Tk_PathName(iconlist->win),arg))
+		if (!strcmp(iconlist->pathName,arg))
 		{
-			found=1;
 			break;
 		}
 		if (iconlist->next==NULL)
-			break;
+			Tcl_AppendResult (interp, "tray icon not found: ",arg , (char *) NULL);
+			return TCL_ERROR;
 		iconlist=(TrayIcon *)iconlist->next;
 	}
-
-	if (found == 0)
-	{
-		Tcl_AppendResult (interp, "tray icon not found: ",arg , (char *) NULL);
-		return TCL_ERROR;
-	}
-
 		
 	/* Parse arguments */
 	for (n=2;n<objc;n++)
@@ -494,7 +496,7 @@ Tk_ConfigureIcon (ClientData clientData,
 			if (!strncmp(arg,"-pixmap",length))
 			{
 				n++;
-				pixmap=Tcl_GetStringFromObj(objv[n],(int *) &length);
+				iconlist->pixmapName = Tcl_GetStringFromObj(objv[n],(int *) &length);
 			} else if (!strncmp(arg,"-tooltip",length))
 			{
 				n++;
@@ -503,6 +505,10 @@ Tk_ConfigureIcon (ClientData clientData,
 			{
 				n++;
 				strcpy(iconlist->cmdCallback,Tcl_GetStringFromObj(objv[n],(int *) &length));
+			} else if (!strncmp(arg,"-createcb",length))
+			{
+				n++;
+				strcpy(iconlist->cmdCreate, Tcl_GetStringFromObj(objv[n],(int *) &length));
 			} else {
 				Tcl_AppendResult (interp, "unknown", arg,"option", (char *) NULL);
 				return TCL_ERROR;
@@ -513,10 +519,10 @@ Tk_ConfigureIcon (ClientData clientData,
 		}
 	}
 
-	if (pixmap != NULL)
+	if (iconlist->pixmapName != NULL && iconlist->pixmap != NULL)
 	{
 		Tk_FreeImage(iconlist->pixmap);
-		iconlist->pixmap=Tk_GetImage(interp,iconlist->win,pixmap,ImageChangedProc, (ClientData)iconlist);
+		iconlist->pixmap=Tk_GetImage(interp,iconlist->win,iconlist->pixmapName,ImageChangedProc, (ClientData)iconlist);
 		Tcl_DoWhenIdle(DrawIcon, (ClientData) iconlist);
 		
 	}
@@ -615,7 +621,6 @@ Tk_RemoveIcon (ClientData clientData,
     		int objc,
     		Tcl_Obj *CONST objv[])
 {
-	int found;
 	char *arg=NULL;
 	size_t length;
 	TrayIcon *tmp=NULL;
@@ -624,12 +629,11 @@ Tk_RemoveIcon (ClientData clientData,
 	arg=Tcl_GetStringFromObj(objv[1],(int *) &length);
 	if (strncmp(arg,".",1))
 	{
-		Tcl_AppendResult (interp, "bad path name: ",Tcl_GetStringFromObj(objv[1],(int *) &length) , (char *) NULL);
+		Tcl_AppendResult (interp, "bad path name: ",arg , (char *) NULL);
 		return TCL_ERROR;
 	}
 		
 	/* Find icon in the list */
-	found=0;
 	if (iconlist == NULL)
 	{
 		Tcl_AppendResult (interp, "create a tray icon first" , (char *) NULL);
@@ -641,24 +645,22 @@ Tk_RemoveIcon (ClientData clientData,
 		
 	while (1)
 	{
-		if (!strcmp(Tk_PathName(iconlist->win),arg))
+		if (!strcmp(iconlist->pathName,arg))
 		{
-			found=1;
 			break;
 		}
 		if (iconlist->next==NULL)
-			break;
+			Tcl_AppendResult (interp, "tray icon not found: ",arg , (char *) NULL);
+			return TCL_OK;
 		iconlist=(TrayIcon *)iconlist->next;
 	}
 
-	if (found == 0)
-	{
-		Tcl_AppendResult (interp, "tray icon not found: ",arg , (char *) NULL);
-		return TCL_OK;
+	if( iconlist->pixmap != NULL ) {
+		Tk_FreeImage(iconlist->pixmap);
 	}
-
-	Tk_FreeImage(iconlist->pixmap);
-	Tk_DestroyWindow(iconlist->win);
+	if( iconlist->win != NULL ) {
+		Tk_DestroyWindow(iconlist->win);
+	}
 	
 	/* Remove it from the list */
 	if (iconlist->next == NULL && iconlist->prev == NULL)
@@ -692,6 +694,7 @@ Tk_RemoveIcon (ClientData clientData,
 }
 
 
+//FIXME: This function should be removed altogether
 static int 
 Tk_SystemTrayAvailable (ClientData clientData,
 		Tcl_Interp *interp,
@@ -699,10 +702,7 @@ Tk_SystemTrayAvailable (ClientData clientData,
     		Tcl_Obj *CONST objv[])
 {
 	Tcl_Obj *result;
-	if (systemtray >0)
-		result=Tcl_NewIntObj(1);
-	else
-		result=Tcl_NewIntObj(-1);
+	result=Tcl_NewIntObj(1);
 	
 	Tcl_SetObjResult(interp, result);
 	return TCL_OK;
