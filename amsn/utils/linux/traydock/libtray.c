@@ -131,6 +131,36 @@ send_message (Display* dpy,Window w,
     //}
 }
 
+/* Find the TrayIcon with pathName in iconlist */
+static TrayIcon *
+	findTrayIcon(const char *name)
+{
+	if (iconlist == NULL)
+	{
+		return NULL;
+	}
+	IL_FIRST(iconlist)
+
+	while (1)
+	{
+		//printf ("Comparing with %s!!\n",Tk_PathName(iconlist->win));
+		if (strcmp(iconlist->pathName,name) == 0)
+		{
+			return iconlist;
+		}
+		if (iconlist->next==NULL)
+			return NULL;
+		iconlist=(TrayIcon *)iconlist->next;
+	}
+}
+
+/* Check if the icon name is valid */
+static int
+isValidIconName(const char *name, const size_t length)
+{
+	return !(name == NULL || length < 1 || strncmp(name, ".", 1));
+}
+
 /* Procedure that Docks the icon */
 static void
 DockIcon(ClientData clientData)
@@ -354,7 +384,7 @@ Tk_TrayIconNew (ClientData clientData,
 	char *arg;
 	size_t length;
 	Tk_Window mainw;
-	TrayIcon *icon;
+	TrayIcon *icon, *findIco;
 
 	/* Get memory for trayicon data and zero it*/
 	icon = (TrayIcon *) malloc(sizeof(TrayIcon));
@@ -366,29 +396,16 @@ Tk_TrayIconNew (ClientData clientData,
 	/* Get the first argument string (object name) and check it */
 	icon->pathName=Tcl_GetStringFromObj(objv[1],(int *) &length);
 	//printf("Arg: %s\n",arg);
-	if (icon->pathName == NULL || length < 1 || strncmp(icon->pathName, ".", 1)) {
+	if (!isValidIconName(icon->pathName, length)) {
 		Tcl_AppendResult (interp, "bad path name: ", icon->pathName , (char *) NULL);
 		return TCL_ERROR;
 	}
 	
 	/* Search in the list if that trayicon window name already exists */
-	//printf ("Searching for %s!!\n",arg);
-	if (iconlist != NULL)
-	{
-		IL_FIRST(iconlist)
-		
-		while (1)
-		{
-			//printf ("Comparing with %s!!\n",Tk_PathName(iconlist->win));
-			if (!strcmp(iconlist->pathName,icon->pathName))
-			{
-				Tcl_AppendResult (interp, "tray icon ",icon->pathName , " already exist", (char *) NULL);
-				return TCL_ERROR;
-			}
-			if (iconlist->next==NULL)
-				break;
-			iconlist=(TrayIcon *)iconlist->next;
-		}
+	findIco = findTrayIcon(icon->pathName);
+	if( findIco != NULL ) {
+		Tcl_AppendResult (interp, "tray icon ",icon->pathName , " already exist", (char *) NULL);
+		return TCL_ERROR;
 	}
 
 	/* Parse options */
@@ -451,10 +468,11 @@ Tk_ConfigureIcon (ClientData clientData,
 	int n;
 	char *arg;
 	size_t length;
+	TrayIcon *icon;
 
 	/* Check path name */
 	arg=Tcl_GetStringFromObj(objv[1],(int *) &length);
-	if (strncmp(arg,".",1))
+	if (!isValidIconName(arg, length))
 	{
 		Tcl_AppendResult (interp, "bad path name: ",Tcl_GetStringFromObj(objv[1],(int *) &length) , (char *) NULL);
 		return TCL_ERROR;
@@ -466,27 +484,12 @@ Tk_ConfigureIcon (ClientData clientData,
 	}
 	
 	/* Find icon in the list */
-	if (iconlist == NULL)
-	{
-		Tcl_AppendResult (interp, "create a tray icon first" , (char *) NULL);
+	icon = findTrayIcon(arg);
+	if ( icon == NULL ) {
+		Tcl_AppendResult (interp, "tray icon not found: ",arg , (char *) NULL);
 		return TCL_ERROR;
 	}
 
-		
-	IL_FIRST(iconlist)
-		
-	while (1)
-	{
-		if (!strcmp(iconlist->pathName,arg))
-		{
-			break;
-		}
-		if (iconlist->next==NULL)
-			Tcl_AppendResult (interp, "tray icon not found: ",arg , (char *) NULL);
-			return TCL_ERROR;
-		iconlist=(TrayIcon *)iconlist->next;
-	}
-		
 	/* Parse arguments */
 	for (n=2;n<objc;n++)
 	{
@@ -496,19 +499,19 @@ Tk_ConfigureIcon (ClientData clientData,
 			if (!strncmp(arg,"-pixmap",length))
 			{
 				n++;
-				iconlist->pixmapName = Tcl_GetStringFromObj(objv[n],(int *) &length);
+				icon->pixmapName = Tcl_GetStringFromObj(objv[n],(int *) &length);
 			} else if (!strncmp(arg,"-tooltip",length))
 			{
 				n++;
-				strcpy(iconlist->tooltip,Tcl_GetStringFromObj(objv[n],(int *) &length));
+				strcpy(icon->tooltip,Tcl_GetStringFromObj(objv[n],(int *) &length));
 			} else if (!strncmp(arg,"-command",length))
 			{
 				n++;
-				strcpy(iconlist->cmdCallback,Tcl_GetStringFromObj(objv[n],(int *) &length));
+				strcpy(icon->cmdCallback,Tcl_GetStringFromObj(objv[n],(int *) &length));
 			} else if (!strncmp(arg,"-createcb",length))
 			{
 				n++;
-				strcpy(iconlist->cmdCreate, Tcl_GetStringFromObj(objv[n],(int *) &length));
+				strcpy(icon->cmdCreate, Tcl_GetStringFromObj(objv[n],(int *) &length));
 			} else {
 				Tcl_AppendResult (interp, "unknown", arg,"option", (char *) NULL);
 				return TCL_ERROR;
@@ -519,11 +522,11 @@ Tk_ConfigureIcon (ClientData clientData,
 		}
 	}
 
-	if (iconlist->pixmapName != NULL && iconlist->pixmap != NULL)
+	if (icon->pixmapName != NULL && icon->pixmap != NULL)
 	{
-		Tk_FreeImage(iconlist->pixmap);
-		iconlist->pixmap=Tk_GetImage(interp,iconlist->win,iconlist->pixmapName,ImageChangedProc, (ClientData)iconlist);
-		Tcl_DoWhenIdle(DrawIcon, (ClientData) iconlist);
+		Tk_FreeImage(icon->pixmap);
+		icon->pixmap=Tk_GetImage(interp,icon->win,icon->pixmapName,ImageChangedProc, (ClientData)icon);
+		Tcl_DoWhenIdle(DrawIcon, (ClientData) icon);
 		
 	}
 	return TCL_OK;
@@ -623,70 +626,58 @@ Tk_RemoveIcon (ClientData clientData,
 {
 	char *arg=NULL;
 	size_t length;
-	TrayIcon *tmp=NULL;
+	TrayIcon *tmp=NULL, *icon;
 	
 	/* Check path */
 	arg=Tcl_GetStringFromObj(objv[1],(int *) &length);
-	if (strncmp(arg,".",1))
+	if (!isValidIconName(arg, length))
 	{
 		Tcl_AppendResult (interp, "bad path name: ",arg , (char *) NULL);
 		return TCL_ERROR;
 	}
 		
 	/* Find icon in the list */
-	if (iconlist == NULL)
-	{
-		Tcl_AppendResult (interp, "create a tray icon first" , (char *) NULL);
-		return TCL_ERROR;
+	icon = findTrayIcon(arg);
+	if( icon == NULL ) {
+		Tcl_AppendResult (interp, "tray icon not found: ",arg , (char *) NULL);
+		return TCL_OK;
 	}
 
-		
-	IL_FIRST(iconlist)
-		
-	while (1)
-	{
-		if (!strcmp(iconlist->pathName,arg))
-		{
-			break;
-		}
-		if (iconlist->next==NULL)
-			Tcl_AppendResult (interp, "tray icon not found: ",arg , (char *) NULL);
-			return TCL_OK;
-		iconlist=(TrayIcon *)iconlist->next;
+	if( icon->pixmap != NULL ) {
+		Tk_FreeImage(icon->pixmap);
+		icon->pixmap = NULL;
 	}
-
-	if( iconlist->pixmap != NULL ) {
-		Tk_FreeImage(iconlist->pixmap);
-	}
-	if( iconlist->win != NULL ) {
-		Tk_DestroyWindow(iconlist->win);
+	if( icon->win != NULL ) {
+		Tk_DestroyWindow(icon->win);
+		icon->win = NULL;
 	}
 	
 	/* Remove it from the list */
-	if (iconlist->next == NULL && iconlist->prev == NULL)
+	if (icon->next == NULL && icon->prev == NULL)
 	{
-		free(iconlist);
-		iconlist=NULL;
-	} else if (iconlist->next==NULL)
+		free(icon);
+		icon=NULL;
+		iconlist = NULL;
+	} else if (icon->next==NULL)
 	{
-		tmp = (TrayIcon *)iconlist->prev;
+		tmp = (TrayIcon *)icon->prev;
 		tmp->next=NULL;
-		iconlist->prev=iconlist->next=NULL;
-		free(iconlist);
+		icon->prev=icon->next=NULL;
+		free(icon);
 		iconlist=tmp;
-	} else if (iconlist->prev==NULL)
+	} else if (icon->prev==NULL)
 	{
-		tmp = (TrayIcon *)iconlist->next;
+		tmp = (TrayIcon *)icon->next;
 		tmp->prev=NULL;
-		iconlist->prev=iconlist->next=NULL;
-		free(iconlist);
+		icon->prev=icon->next=NULL;
+		free(icon);
 		iconlist=tmp;
 	} else	{
-		tmp = (TrayIcon *) iconlist->prev;
-		tmp->next = iconlist->next;
+		tmp = (TrayIcon *) icon->prev;
+		tmp->next = icon->next;
 		((TrayIcon *)tmp->next)->prev=(TrayIcon_ *)tmp;
-		iconlist->prev=iconlist->next=NULL;
-		free(iconlist);
+		icon->prev=icon->next=NULL;
+		free(icon);
 		iconlist=tmp;
 	}
 		
