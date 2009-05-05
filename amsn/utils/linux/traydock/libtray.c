@@ -74,6 +74,9 @@ typedef struct {
 	TrayIcon_ *next;
 } TrayIcon;
 
+static int CreateIconWin(Tcl_Interp *, TrayIcon *);
+static void DockIcon(ClientData);
+
 static TrayIcon *iconlist=NULL;
 
 /* System tray window ID */
@@ -159,6 +162,42 @@ static int
 isValidIconName(const char *name, const size_t length)
 {
 	return !(name == NULL || length < 1 || strncmp(name, ".", 1));
+}
+
+/* Function that handles XEvents */
+static int
+processEvents(ClientData data, XEvent *ev)
+{
+	XClientMessageEvent *cm;
+	switch( ev->type ) {
+		case ClientMessage:
+			fprintf( stderr, "New ClientMessage\n" );
+			cm = (XClientMessageEvent *) ev;
+			if( strcmp( "MANAGER", Tk_GetAtomName(Tk_MainWindow(globalinterp),cm->message_type)) == 0 ) {
+				if( strcmp( (char *)data, Tk_GetAtomName(Tk_MainWindow(globalinterp), cm->data.l[1]) ) == 0 ) {
+					fprintf(stderr, "We have a new tray available!!\n");
+					systemtray = (Window)cm->data.l[2];
+					if( iconlist != NULL ) {
+						IL_FIRST(iconlist);
+						if( iconlist->win == NULL ) {
+							CreateIconWin(globalinterp, iconlist);
+						}
+						DockIcon((ClientData)iconlist);
+						while(iconlist->next != NULL) {
+							iconlist = iconlist->next;
+							if( iconlist->win == NULL ) {
+								CreateIconWin(globalinterp, iconlist);
+							}
+							DockIcon((ClientData)iconlist);
+						}
+					}
+				}
+			}
+			break;
+		default:
+			break;
+	}
+	return 0;
 }
 
 /* Procedure that Docks the icon */
@@ -714,6 +753,7 @@ Tray_Init (Tcl_Interp *interp)
 	char buffer[256];
 	Atom a;
 	Tk_Window mainwin;
+	Window root;
 	systemtray=0;
 
 	globalinterp = interp;
@@ -723,9 +763,10 @@ Tray_Init (Tcl_Interp *interp)
 		return TCL_ERROR;
 	}
 
-	//Get main window, and display
+	//Get main window, display, root
 	mainwin=Tk_MainWindow(interp);
 	display = Tk_Display(mainwin);
+	root = RootWindow(display, XScreenNumberOfScreen(Tk_Screen(mainwin)));
 
 	snprintf (buffer, sizeof (buffer), "_NET_SYSTEM_TRAY_S%d",
 					XScreenNumberOfScreen(Tk_Screen(mainwin)));
@@ -733,6 +774,19 @@ Tray_Init (Tcl_Interp *interp)
 	a=XInternAtom (display,buffer, False);
 	/* And get the window ID associated to that atom */
 	systemtray=XGetSelectionOwner(display,a);
+	/* Create the handler for XEvents. buffer gets duplicated but never freed:
+	 * this is not an issue since the allocation happens just once and it is
+	 * used to the end of the program, so no memory leak here */
+	Tk_CreateGenericHandler(processEvents, (ClientData)strdup(buffer));
+	if (systemtray == None)
+	{
+		XSelectInput(display, root, StructureNotifyMask);
+		systemtray=XGetSelectionOwner(display,a);
+	} else {
+		XSelectInput(display, systemtray, StructureNotifyMask);
+	}
+
+	/* Call the events processing function */
 
 	/* Create the new trayicon commands */
 	Tcl_CreateObjCommand(interp, "newti", Tk_TrayIconNew,
