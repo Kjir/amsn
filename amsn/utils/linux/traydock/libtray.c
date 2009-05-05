@@ -171,24 +171,26 @@ processEvents(ClientData data, XEvent *ev)
 	XClientMessageEvent *cm;
 	switch( ev->type ) {
 		case ClientMessage:
+#ifdef DEBUG
 			fprintf( stderr, "New ClientMessage\n" );
+#endif
 			cm = (XClientMessageEvent *) ev;
 			if( strcmp( "MANAGER", Tk_GetAtomName(Tk_MainWindow(globalinterp),cm->message_type)) == 0 ) {
 				if( strcmp( (char *)data, Tk_GetAtomName(Tk_MainWindow(globalinterp), cm->data.l[1]) ) == 0 ) {
+#ifdef DEBUG
 					fprintf(stderr, "We have a new tray available!!\n");
+#endif
 					systemtray = (Window)cm->data.l[2];
 					if( iconlist != NULL ) {
 						IL_FIRST(iconlist);
 						if( iconlist->win == NULL ) {
 							CreateIconWin(globalinterp, iconlist);
 						}
-						DockIcon((ClientData)iconlist);
 						while(iconlist->next != NULL) {
 							iconlist = iconlist->next;
 							if( iconlist->win == NULL ) {
 								CreateIconWin(globalinterp, iconlist);
 							}
-							DockIcon((ClientData)iconlist);
 						}
 					}
 				}
@@ -386,9 +388,9 @@ CreateIconWin(Tcl_Interp *interp, TrayIcon *icon)
 	/* Create the window */
 	icon->win=Tk_CreateWindowFromPath(interp, mainw, icon->pathName, NULL);
 
-	DockIcon((ClientData)icon);
-
 	Tk_GeometryRequest( icon->win, 24, 24);
+
+	DockIcon((ClientData)icon);
 
 	icon->pixmap=Tk_GetImage(interp,icon->win,icon->pixmapName,ImageChangedProc, (ClientData)icon);
 
