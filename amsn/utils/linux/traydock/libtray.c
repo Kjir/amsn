@@ -267,10 +267,14 @@ remove_tooltip (void)
 static int
 MessageEvent (Tk_Window tkwin, XEvent *eventPtr)
 {
+#ifdef DEBUG
 	printf("Got ClientMessage event\n");
+#endif
     if( eventPtr->type == ClientMessage ) {
+#ifdef DEBUG
         printf( "Window: %d\n", eventPtr->xclient.window );
         printf( "Atom: %s\n", XGetAtomName(display, eventPtr->xclient.message_type) );
+#endif
     }
 	return 0;
 }
@@ -282,7 +286,9 @@ IconEvent (ClientData clientData, register XEvent *eventPtr)
 {
 	TrayIcon *icon = (TrayIcon *)clientData;
 
+#ifdef DEBUG
     printf( "Got another Event\n" );
+#endif
 	if ((eventPtr->type == Expose) && (eventPtr->xexpose.count == 0)) {
 		if (icon->win != NULL)
 			/*horrible hack to redraw the icon when dragging the dock aroun the panels*/
