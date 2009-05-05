@@ -195,6 +195,8 @@ DrawIcon (ClientData clientData)
 	XSizeHints *hints = NULL;
 	long supplied = 0;
 
+    if(icon->win = NULL)
+        return;
 	XGetGeometry(display, Tk_WindowId(icon->win), &r, &x, &y, &w, &h, &b, &d);
 	XClearWindow(display, Tk_WindowId(icon->win));
 
