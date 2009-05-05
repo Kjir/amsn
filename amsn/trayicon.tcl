@@ -418,7 +418,7 @@ proc mailicon_proc {num} {
 		} else {
 			image create photo mailtrayicon -file $pixmap
 			image create photo mailtrayiconres
-			set mailicon [newti .mi -tooltip offline -pixmap mailtrayiconres -command "::trayicon_callback mailtrayicon mailtrayiconres" -createcb "::mailicon_createcb $msg"]
+			set mailicon [newti .mi -tooltip offline -pixmap mailtrayiconres -command "::trayicon_callback mailtrayicon mailtrayiconres" -createcb [list ::mailicon_createcb $msg]]
 		}
 
 	} elseif {$systemtray_exist == 1 && $mailicon != 0 && $num == 0} {
@@ -569,7 +569,7 @@ proc addTrayIcon {name xiconpath winiconpath {tooltip ""} {winactionhandler "noh
 			} else {
 				if { [loadTrayLib] } {
 					#add the icon     !! name => .name
-					set name [newti .$name -pixmap [image create photo dest_$name] -command "::trayIcon_Configure [image create photo source_$name -file $xiconpath] dest_$name" -createcb "::trayIcon_Bind $name"]
+					set name [newti .$name -pixmap [image create photo dest_$name] -command "::trayIcon_Configure [image create photo source_$name -file $xiconpath] dest_$name" -createcb [list ::trayIcon_Bind $name]]
 				}
 			}
 			return 1
