@@ -61,8 +61,8 @@ typedef struct TrayIcon *TrayIcon_;
 typedef struct {
 	Tk_Window win;
 	Tk_PhotoHandle pixmap;
-	char *pixmapName;
-	const char *pathName;
+	char pixmapName[768];
+	char pathName[768];
 	int w,h;
 	char tooltip[256];
 	char cmdCallback[768];
@@ -195,8 +195,8 @@ DrawIcon (ClientData clientData)
 	XSizeHints *hints = NULL;
 	long supplied = 0;
 
-    if(icon->win = NULL)
-        return;
+	if(icon->win = NULL)
+		return;
 	XGetGeometry(display, Tk_WindowId(icon->win), &r, &x, &y, &w, &h, &b, &d);
 	XClearWindow(display, Tk_WindowId(icon->win));
 
@@ -396,7 +396,7 @@ Tk_TrayIconNew (ClientData clientData,
 	mainw=Tk_MainWindow(interp);
 
 	/* Get the first argument string (object name) and check it */
-	icon->pathName=Tcl_GetStringFromObj(objv[1],(int *) &length);
+	strcpy( icon->pathName, Tcl_GetStringFromObj(objv[1],(int *) &length) );
 	//printf("Arg: %s\n",arg);
 	if (!isValidIconName(icon->pathName, length)) {
 		Tcl_AppendResult (interp, "bad path name: ", icon->pathName , (char *) NULL);
@@ -417,7 +417,7 @@ Tk_TrayIconNew (ClientData clientData,
 			if (!strncmp(arg,"-pixmap",length)) {
 				n++;
 				/*Get pixmap name*/
-				icon->pixmapName=Tcl_GetStringFromObj(objv[n],(int *) &length);
+				strcpy( icon->pixmapName, Tcl_GetStringFromObj(objv[n],(int *) &length) );
 			} else if (!strncmp(arg,"-tooltip",length)) {
 				/* Copy tooltip string */
 				n++;
@@ -501,7 +501,7 @@ Tk_ConfigureIcon (ClientData clientData,
 			if (!strncmp(arg,"-pixmap",length))
 			{
 				n++;
-				icon->pixmapName = Tcl_GetStringFromObj(objv[n],(int *) &length);
+				strcpy( icon->pixmapName, Tcl_GetStringFromObj(objv[n],(int *) &length) );
 			} else if (!strncmp(arg,"-tooltip",length))
 			{
 				n++;
