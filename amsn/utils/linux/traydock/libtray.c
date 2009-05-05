@@ -76,6 +76,7 @@ typedef struct {
 
 static int CreateIconWin(Tcl_Interp *, TrayIcon *);
 static void DockIcon(ClientData);
+static void DrawIcon(ClientData);
 
 static TrayIcon *iconlist=NULL;
 
@@ -175,7 +176,8 @@ processEvents(ClientData data, XEvent *ev)
 			fprintf( stderr, "New ClientMessage\n" );
 #endif
 			cm = (XClientMessageEvent *) ev;
-			if( strcmp( "MANAGER", Tk_GetAtomName(Tk_MainWindow(globalinterp),cm->message_type)) == 0 ) {
+			char *atomName = Tk_GetAtomName(Tk_MainWindow(globalinterp),cm->message_type);
+			if( strcmp( "MANAGER", atomName ) == 0 ) {
 				if( strcmp( (char *)data, Tk_GetAtomName(Tk_MainWindow(globalinterp), cm->data.l[1]) ) == 0 ) {
 #ifdef DEBUG
 					fprintf(stderr, "We have a new tray available!!\n");
@@ -191,6 +193,21 @@ processEvents(ClientData data, XEvent *ev)
 							if( iconlist->win == NULL ) {
 								CreateIconWin(globalinterp, iconlist);
 							}
+						}
+					}
+				}
+			} else if( strcmp( "_XEMBED", atomName ) == 0 ) {
+				if( cm->data.l[1] == 0 ) {
+#ifdef DEBUG
+					fprintf( stderr, "Got a notify, redraw the icon\n" );
+#endif
+				
+					if( iconlist != NULL ) {
+						IL_FIRST(iconlist);
+						Tcl_DoWhenIdle(DrawIcon, (ClientData)iconlist);
+						while(iconlist->next != NULL) {
+							iconlist = iconlist->next;
+							Tcl_DoWhenIdle(DrawIcon, (ClientData)iconlist);
 						}
 					}
 				}
@@ -240,6 +257,9 @@ DrawIcon (ClientData clientData)
 		return;
 	XGetGeometry(display, Tk_WindowId(icon->win), &r, &x, &y, &w, &h, &b, &d);
 	XClearWindow(display, Tk_WindowId(icon->win));
+#ifdef DEBUG
+	fprintf( stderr, "Size: %dx%d\n", w, h );
+#endif
 
 	/*
 	 * Here we get the window hints because in some cases the XGetGeometry
@@ -493,6 +513,7 @@ Tk_TrayIconNew (ClientData clientData,
 			if(!CreateIconWin(interp, icon)) {
 				return TCL_ERROR;
 			}
+			Tcl_DoWhenIdle(DrawIcon, (ClientData) icon);
 		}
 	}else{
 		Tcl_AppendResult (interp, "you must provide a pixmap file", (char *) NULL);
